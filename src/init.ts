@@ -353,34 +353,57 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     }
   }
 
+  /**
+   * 相同vnode对比函数
+   * @param oldVnode
+   * @param vnode
+   * @param insertedVnodeQueue
+   * @returns
+   */
   function patchVnode(
     oldVnode: VNode,
     vnode: VNode,
     insertedVnodeQueue: VNodeQueue
   ) {
     const hook = vnode.data?.hook;
+    // 执行vnode的prepatch钩子
     hook?.prepatch?.(oldVnode, vnode);
+    // 1. 新vnode没有elm，而旧vnode是有elm的
     const elm = (vnode.elm = oldVnode.elm)!;
     const oldCh = oldVnode.children as VNode[];
     const ch = vnode.children as VNode[];
+    // 前面1赋值，所以这里可以直接看是否相等，因为旧vnode和新vnode在结构上的差异就是elm有无
     if (oldVnode === vnode) return;
     if (vnode.data !== undefined) {
+      // 如果新vnode有data，那么先执行注册模块的更新钩子，再执行vnode的更新钩子
       for (let i = 0; i < cbs.update.length; ++i)
         cbs.update[i](oldVnode, vnode);
       vnode.data.hook?.update?.(oldVnode, vnode);
     }
     if (isUndef(vnode.text)) {
+      // 新vnode没有text的情况
       if (isDef(oldCh) && isDef(ch)) {
+        // 旧vnode有子节点 && 新vnode也有子节点的更新策略：继续对比其children vnode
         if (oldCh !== ch) updateChildren(elm, oldCh, ch, insertedVnodeQueue);
       } else if (isDef(ch)) {
+        // 旧vnode无子节点，新vnode有子节点的更新策略：将旧dom的文本设置为空，插入新的children的dom
         if (isDef(oldVnode.text)) api.setTextContent(elm, "");
         addVnodes(elm, null, ch, 0, ch.length - 1, insertedVnodeQueue);
       } else if (isDef(oldCh)) {
+        // 旧vnode有子节点，新vnode没有子节点的更新策略：直接删除子dom，插入新的文本内容
         removeVnodes(elm, oldCh, 0, oldCh.length - 1);
       } else if (isDef(oldVnode.text)) {
+        // 旧vnode有text文本内容，新节点没有子节点也没有text的更新策略： 直接置空旧dom文本内容
         api.setTextContent(elm, "");
       }
     } else if (oldVnode.text !== vnode.text) {
+      // 新旧节点text不相同，分为两种情况：
+      // 1.旧节点有children
+      // 2.旧节点有text
+
+      // 新vnode为有text时的patch更新策略：
+      // 旧节点有children，那么直接移除children，插入新的文本
+      // 旧节点有text，直接替换文本
       if (isDef(oldCh)) {
         removeVnodes(elm, oldCh, 0, oldCh.length - 1);
       }

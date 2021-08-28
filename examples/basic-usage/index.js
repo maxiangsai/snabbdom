@@ -2,17 +2,9 @@ import { init, propsModule, h } from "../../build/index.js";
 
 const patch = init([propsModule]);
 
-let vnode = h(
-  "",
-  {
-    hook: {
-      init(vnode) {
-        console.log(vnode);
-      },
-    },
-  },
-  ["div", "p"]
-);
-console.log(vnode);
+let vnode = h("div#app", {}, "hello");
 let app = document.getElementById("container");
-patch(app, vnode);
+let oldvnode = patch(app, vnode);
+
+vnode = h("div#app.cls", {});
+patch(oldvnode, vnode);

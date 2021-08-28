@@ -62,13 +62,13 @@ export function h(sel: any, b?: any, c?: any): VNode {
   } else if (b !== undefined && b !== null) {
     // 处理两个参数的情况
     if (is.array(b)) {
-      // h('ul', {}, [h('li')]) 有多个子节点的情况
+      // h('ul', [h('li')]) 有多个子节点的情况
       children = b;
     } else if (is.primitive(b)) {
-      // h('div', {}, '文本') 无子节点
+      // h('div', '文本') 无子节点
       text = b.toString();
     } else if (b && b.sel) {
-      // h('ul', {}, h('li')) 只有一个子节点的情况
+      // h('ul', h('li')) 只有一个子节点的情况
       children = [b];
     } else {
       // 如果都不是以上情形，则认为b就是data

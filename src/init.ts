@@ -60,7 +60,14 @@ const hooks: Array<keyof Module> = [
   "post",
 ];
 
+/**
+ * 初始化函数
+ * @param modules 注册多个模块
+ * @param domApi 浏览器平台的dom操作相关的api
+ * @returns patch函数，可用于对比新旧vnode并挂载dom
+ */
 export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
+  // 存放多个模块的对应钩子
   const cbs: ModuleHooks = {
     create: [],
     update: [],
@@ -72,6 +79,8 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
 
   const api: DOMAPI = domApi !== undefined ? domApi : htmlDomApi;
 
+  // 将注册的模块的钩子函数压入对应集合，例如注册了classModule和styleModule
+  // 会将classModule和styleModule的create钩子函数存放在create集合中，最后得到cbs: { create: [classModule的create钩子函数， styleModule的create钩子函数] }
   for (const hook of hooks) {
     for (const module of modules) {
       const currentHook = module[hook];
@@ -107,12 +116,22 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     };
   }
 
+  /**
+   * 将vnode转成对应的真实dom
+   * tips: 直接在vnode.elm上添加值，所以调用方可以从参数vnode获取到elm，也可以从返回值获得elm
+   * @param vnode 虚拟dom，js对象
+   * @param insertedVnodeQueue
+   * @returns 返回真实dom
+   */
   function createElm(vnode: VNode, insertedVnodeQueue: VNodeQueue): Node {
     let i: any;
     let data = vnode.data;
     if (data !== undefined) {
+      // 看是否有传入的init hook
+      // h('div', { hook: { init: function(vnode) { ... } } }, 'hello vnode')
       const init = data.hook?.init;
       if (isDef(init)) {
+        // 执行init hook
         init(vnode);
         data = vnode.data;
       }
@@ -120,11 +139,13 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     const children = vnode.children;
     const sel = vnode.sel;
     if (sel === "!") {
+      // h('!') 生成注释节点
       if (isUndef(vnode.text)) {
         vnode.text = "";
       }
       vnode.elm = api.createComment(vnode.text!);
     } else if (sel !== undefined) {
+      // 通过分析vnode.sel，获取到id选择器，class
       // Parse selector
       const hashIdx = sel.indexOf("#");
       const dotIdx = sel.indexOf(".", hashIdx);
@@ -141,8 +162,11 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
       if (hash < dot) elm.setAttribute("id", sel.slice(hash + 1, dot));
       if (dotIdx > 0)
         elm.setAttribute("class", sel.slice(dot + 1).replace(/\./g, " "));
+      // 执行注册模块的create钩子函数
       for (i = 0; i < cbs.create.length; ++i) cbs.create[i](emptyNode, vnode);
+
       if (is.array(children)) {
+        // 处理子节点
         for (i = 0; i < children.length; ++i) {
           const ch = children[i];
           if (ch != null) {
@@ -150,16 +174,20 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
           }
         }
       } else if (is.primitive(vnode.text)) {
+        // 插入文本节点
         api.appendChild(elm, api.createTextNode(vnode.text));
       }
       const hook = vnode.data!.hook;
       if (isDef(hook)) {
+        // 执行h函数传入的create钩子
         hook.create?.(emptyNode, vnode);
         if (hook.insert) {
           insertedVnodeQueue.push(vnode);
         }
       }
     } else {
+      // 处理children为纯文本的情况
+      // h('div', {}, children: ['a', 'b'])
       vnode.elm = api.createTextNode(vnode.text!);
     }
     return vnode.elm;
@@ -361,9 +389,18 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     hook?.postpatch?.(oldVnode, vnode);
   }
 
+  /**
+   * patch函数接收2个参数，旧vnode和新的vnode，在开始阶段，并未产生旧vnode，所以会将根节点真实dom传入
+   * const app = document.getElementById('app');
+   * let vnode = h('div#container', '新节点内容')
+   * let oldVnode = patch(app, vnode)
+   * 上述patch会返回vnode，将作为下一步patch时的旧vnode使用
+   * patch(oldVnode, vnode)
+   */
   return function patch(oldVnode: VNode | Element, vnode: VNode): VNode {
     let i: number, elm: Node, parent: Node;
     const insertedVnodeQueue: VNodeQueue = [];
+    // patch开始阶段，先执行注册模块的pre钩子函数
     for (i = 0; i < cbs.pre.length; ++i) cbs.pre[i]();
 
     if (!isVnode(oldVnode)) {
@@ -371,22 +408,28 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     }
 
     if (sameVnode(oldVnode, vnode)) {
+      // 相同vnode，会继续对比不同
       patchVnode(oldVnode, vnode, insertedVnodeQueue);
     } else {
+      // 对于旧vnode而言，已经经历过一次patch操作，所以elm属性必定有值
       elm = oldVnode.elm!;
       parent = api.parentNode(elm) as Node;
 
       createElm(vnode, insertedVnodeQueue);
 
+      // 此时经过了createElm处理，已经拥有了elm真实dom
       if (parent !== null) {
+        // 不同vnode，采取的策略就是插入新节点，移除旧节点
         api.insertBefore(parent, vnode.elm!, api.nextSibling(elm));
         removeVnodes(parent, [oldVnode], 0, 0);
       }
     }
 
     for (i = 0; i < insertedVnodeQueue.length; ++i) {
+      // 执行h函数传入的insert钩子
       insertedVnodeQueue[i].data!.hook!.insert!(insertedVnodeQueue[i]);
     }
+    // patch结束阶段，执行注册模块的post钩子函数
     for (i = 0; i < cbs.post.length; ++i) cbs.post[i]();
     return vnode;
   };
